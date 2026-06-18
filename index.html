@@ -24,7 +24,7 @@ body{background:#0f1a12;font-family:Arial,sans-serif}
 .ai{color:#fff!important;background:#333}
 
 /* HEADER */
-.hdr{background:linear-gradient(135deg,var(--gd),var(--gm));border-bottom:3px solid var(--ga);padding:10px 12px 8px;margin-top:55px}
+.hdr{background:linear-gradient(135deg,var(--gd),var(--gm));border-bottom:3px solid var(--ga);padding:10px 12px 8px}
 .hdr h1{font-size:15px;font-weight:900;color:#fff}
 .hdr h1 b{color:var(--ga)}
 .pills{display:flex;gap:5px;margin-top:5px;flex-wrap:wrap}
@@ -77,9 +77,10 @@ body{background:#0f1a12;font-family:Arial,sans-serif}
 .esl{font-size:9px;color:#bbb;font-style:italic;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 
 /* SEARCH BAR — fixed, always visible */
-.srch-bar{background:rgba(6,6,6,.96);border-bottom:2px solid rgba(200,168,75,.3);
-  padding:7px 10px;position:fixed;top:39px;left:0;right:0;z-index:250;
-  display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px)}
+.srch-bar{background:rgba(6,6,6,.97);border-bottom:2px solid rgba(200,168,75,.3);
+  padding:7px 10px;position:fixed;left:0;right:0;z-index:250;
+  display:flex;align-items:center;gap:8px;backdrop-filter:blur(8px);
+  -webkit-backdrop-filter:blur(8px)}
 .srch-bar input{flex:1;background:#1a1a1a;border:1.5px solid #444;border-radius:20px;
   padding:7px 14px;color:#fff;font-size:13px;outline:none;min-width:0}
 .srch-bar input:focus{border-color:var(--ga);background:#222}
@@ -1318,11 +1319,14 @@ function sw(t){
   const srch = document.getElementById('srch-bar');
   const isBracket = ['a','b','c'].includes(t);
   if(srch){
+    const tabsH = document.querySelector('.tabs')?.offsetHeight||39;
+    const srchH = srch.offsetHeight||55;
+    srch.style.top = tabsH+'px';
     srch.style.display = isBracket ? 'flex' : 'none';
-    // Adjust rsel top: with search=94px, without search=39px
     document.querySelectorAll('.rsel').forEach(el=>{
-      el.style.top = isBracket ? '94px' : '39px';
+      el.style.top = isBracket ? (tabsH+srchH)+'px' : tabsH+'px';
     });
+    document.querySelector('.hdr')?.style && (document.querySelector('.hdr').style.marginTop = isBracket ? srchH+'px' : '0');
   }
   if(!isBracket) clearSearch();
   if(t==='v') renderVtj(VENTAJAS_DATA);
@@ -1369,25 +1373,34 @@ async function loadResults(){
   if(!APPS_SCRIPT_URL||APPS_SCRIPT_URL.includes('YOUR_'))return;
   try{
     const r=await fetch(APPS_SCRIPT_URL+'?t='+Date.now(),{
-      method:'GET', mode:'cors', credentials:'omit', cache:'no-cache'
+      method:'GET',mode:'cors',credentials:'omit',cache:'no-cache'
     });
     if(r.ok){
       const json=await r.json();
       if(json.status==='ok'&&Array.isArray(json.results)){
         const parsed=json.results.map(row=>({
-          bracket:row.bracket,round:row.round,match:+row.match,
-          winner:row.winner,score:row.score,ts:row.timestamp||row.ts||''
-        })).filter(r=>r.bracket&&r.winner);
-        if(parsed.length>0||RESULTS.length===0) RESULTS=parsed;
+          bracket:(row.bracket||'').toLowerCase(),
+          round:row.round,
+          match:+row.match,
+          winner:row.winner,
+          score:row.score,
+          ts:row.timestamp||row.ts||''
+        })).filter(r=>r.bracket&&r.winner&&r.match);
+        // Only update if we got valid data
+        if(parsed.length>0) RESULTS=parsed;
       }
     }
-  }catch(e){ /* silent fail — use local/test data */ }
+  }catch(e){ /* silent — keep existing RESULTS */ }
 }
 
 // Auto-refresh results every 60 seconds
 async function autoRefresh(){
+  const prevCount=RESULTS.length;
   await loadResults();
-  rebuild();
+  // Only rebuild if results changed
+  if(RESULTS.length!==prevCount){
+    rebuild();
+  }
   const now=new Date().toLocaleString('es-MX',{day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'});
   document.getElementById('tsp').textContent='↻ '+now;
 }
@@ -1431,6 +1444,12 @@ function rebuild(){
   initRbar('c',RC_LABELS,RC_DATES,ROUNDS_C);
 
   sw('a');
+  // Position search bar correctly after layout
+  requestAnimationFrame(()=>{
+    const tabs=document.querySelector('.tabs');
+    const srch=document.getElementById('srch-bar');
+    if(tabs&&srch) srch.style.top=tabs.offsetHeight+'px';
+  });
   requestAnimationFrame(()=>{
     document.getElementById('da').innerHTML=renderTwo('a',0,ROUNDS_A);
     document.getElementById('db').innerHTML=renderTwo('b',0,ROUNDS_B);
