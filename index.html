@@ -562,11 +562,12 @@ function buildA(){
 // This ensures B and C brackets fill up in the order matches were played
 function aLosers(aRounds,ri){
   const rnd=aRounds[ri];
+  if(!rnd) return [];
   const roundLabel=RA_LABELS[ri];
   const losers=[];
   rnd.forEach((m,mi)=>{
     if(m.w){
-      const loser=m.w===m.p1?m.p2:m.p1;
+      const loser=m.w[1]===m.p1?.[1]?m.p2:m.p1;
       if(loser&&loser[1]){
         const res=getResult('a',roundLabel,mi+1);
         const ts=res?.ts||'';
@@ -574,23 +575,25 @@ function aLosers(aRounds,ri){
       }
     }
   });
-  // Sort: if timestamps exist sort by ts, else sort by match number
   const hasTs=losers.some(l=>l.ts);
   losers.sort((a,b)=>{
     if(hasTs&&a.ts&&b.ts) return a.ts.localeCompare(b.ts);
-    if(hasTs&&a.ts) return -1;  // has ts goes first
+    if(hasTs&&a.ts) return -1;
     if(hasTs&&b.ts) return 1;
-    return a.matchNum-b.matchNum; // fallback: match order
+    return a.matchNum-b.matchNum;
   });
   return losers.map(l=>l.player);
 }
 function bLosers_(bRounds,ri){
   const rnd=bRounds[ri];
+  if(!rnd) return [];
   const roundLabel=RB_LABELS[ri];
+  const totalMatches=rnd.length;
+  // Collect played losers with timestamp, sort by timestamp (same order as before)
   const losers=[];
   rnd.forEach((m,mi)=>{
     if(m.w){
-      const loser=m.w===m.p1?m.p2:m.p1;
+      const loser=m.w[1]===m.p1?.[1]?m.p2:m.p1;
       if(loser&&loser[1]){
         const res=getResult('b',roundLabel,mi+1);
         const ts=res?.ts||'';
@@ -605,7 +608,10 @@ function bLosers_(bRounds,ri){
     if(hasTs&&b.ts) return 1;
     return a.matchNum-b.matchNum;
   });
-  return losers.map(l=>l.player);
+  // Played losers first (timestamp order), then nulls to fill remaining slots
+  const result=losers.map(l=>l.player);
+  while(result.length<totalMatches) result.push(null);
+  return result;
 }
 
 function buildB(aRounds){
@@ -703,28 +709,37 @@ function buildB(aRounds){
 }
 
 function buildC(aRounds,bRounds){
-  const bl2=bLosers_(bRounds,0),bl3=bLosers_(bRounds,1);
-  const allBL=[...bl2,...bl3];
+  // C-R3: first all B-R2 losers (32 slots), then all B-R3 losers (32 slots) = 64 slots → 32 matches
+  const bl2=bLosers_(bRounds,0);  // 32 slots (match order, nulls for unplayed)
+  const bl3=bLosers_(bRounds,1);  // 32 slots
+  const allBL=[...bl2,...bl3];    // B-R2 first (1-32), then B-R3 (33-64)
   const rounds=[];
-  // R3: 32 matches
   const rc3=[];
   for(let m=0;m<32;m++){
     const p1=allBL[m*2]||null,p2=allBL[m*2+1]||null;
     const w=getWinnerName(p1,p2,'c','R3',m+1);
-    rc3.push({p1,p2,w,o1:`${ordinal(m*2+1)} perd. B`,o2:`${ordinal(m*2+2)} perd. B`,br:'c',round:'R3',match:m+1});
+    // First 32 slots (indices 0-31) = B-R2, next 32 (32-63) = B-R3
+    const src1=m*2<32?'B-R2':'B-R3', src2=m*2+1<32?'B-R2':'B-R3';
+    const idx1=m*2<32?m*2+1:m*2-31, idx2=m*2+1<32?m*2+2:m*2-30;
+    rc3.push({p1,p2,w,o1:`${ordinal(idx1)} perd. ${src1}`,o2:`${ordinal(idx2)} perd. ${src2}`,br:'c',round:'R3',match:m+1});
   }
   rounds.push(rc3);
-  // R4: 32 matches 1-to-1
-  const bl31=bLosers_(bRounds,2),bl4=bLosers_(bRounds,3);
-  const bL34=[...bl31,...bl4];
+
+  // C-R4: 32 matches 1-to-1 — gan C-R3 vs [perd B-R3.1 (1-16) + perd B-R4 (17-32)]
+  const bl31=bLosers_(bRounds,2);  // 16 slots
+  const bl4=bLosers_(bRounds,3);   // 16 slots
+  const bL34=[...bl31,...bl4];      // B-R3.1 first, then B-R4
   const rc4=[];
   for(let m=0;m<32;m++){
     const p1=rc3[m]?.w||null,p2=bL34[m]||null;
     const w=getWinnerName(p1,p2,'c','R4',m+1);
-    rc4.push({p1,p2,w,o1:`Gan. C-R3 p.${m+1}`,o2:`${ordinal(m+1)} perd. B-R3.1/R4`,br:'c',round:'R4',match:m+1});
+    const src4=m<16?'B-R3.1':'B-R4';
+    const idx4=m<16?m+1:m-15;
+    rc4.push({p1,p2,w,o1:`Gan. C-R3 p.${m+1}`,o2:`${ordinal(idx4)} perd. ${src4}`,br:'c',round:'R4',match:m+1});
   }
   rounds.push(rc4);
-  // R5: 16 bracket
+
+  // C-R5: 16 bracket — gan C-R4 se emparejan
   const rc5=[];
   for(let m=0;m<16;m++){
     const p1=rc4[m*2]?.w||null,p2=rc4[m*2+1]?.w||null;
@@ -732,17 +747,22 @@ function buildC(aRounds,bRounds){
     rc5.push({p1,p2,w,o1:`Gan. C-R4 p.${m*2+1}`,o2:`Gan. C-R4 p.${m*2+2}`,br:'c',round:'R5',match:m+1});
   }
   rounds.push(rc5);
-  // R5.1: 16 matches 1-to-1
-  const bl41=bLosers_(bRounds,4),bl5=bLosers_(bRounds,5);
-  const bL45=[...bl41,...bl5];
+
+  // C-R5.1: 16 matches 1-to-1 — gan C-R5 vs [perd B-R4.1 (1-8) + perd B-R5 (9-16)]
+  const bl41=bLosers_(bRounds,4);  // 8 slots
+  const bl5=bLosers_(bRounds,5);   // 8 slots
+  const bL45=[...bl41,...bl5];      // B-R4.1 first, then B-R5
   const rc51=[];
   for(let m=0;m<16;m++){
     const p1=rc5[m]?.w||null,p2=bL45[m]||null;
     const w=getWinnerName(p1,p2,'c','R5.1',m+1);
-    rc51.push({p1,p2,w,o1:`Gan. C-R5 p.${m+1}`,o2:`${ordinal(m+1)} perd. B-R4.1/R5`,br:'c',round:'R5.1',match:m+1});
+    const src51=m<8?'B-R4.1':'B-R5';
+    const idx51=m<8?m+1:m-7;
+    rc51.push({p1,p2,w,o1:`Gan. C-R5 p.${m+1}`,o2:`${ordinal(idx51)} perd. ${src51}`,br:'c',round:'R5.1',match:m+1});
   }
   rounds.push(rc51);
-  // R6: 8 bracket
+
+  // C-R6: 8 bracket
   const rc6=[];
   for(let m=0;m<8;m++){
     const p1=rc51[m*2]?.w||null,p2=rc51[m*2+1]?.w||null;
@@ -750,17 +770,22 @@ function buildC(aRounds,bRounds){
     rc6.push({p1,p2,w,o1:`Gan. C-R5.1 p.${m*2+1}`,o2:`Gan. C-R5.1 p.${m*2+2}`,br:'c',round:'R6',match:m+1});
   }
   rounds.push(rc6);
-  // R6.1: 8 matches 1-to-1
-  const bl51=bLosers_(bRounds,6),bl6=bLosers_(bRounds,7);
-  const bL56=[...bl51,...bl6];
+
+  // C-R6.1: 8 matches 1-to-1 — gan C-R6 vs [perd B-R5.1 (1-4) + perd B-R6 (5-8)]
+  const bl51=bLosers_(bRounds,6);  // 4 slots
+  const bl6=bLosers_(bRounds,7);   // 4 slots
+  const bL56=[...bl51,...bl6];      // B-R5.1 first, then B-R6
   const rc61=[];
   for(let m=0;m<8;m++){
     const p1=rc6[m]?.w||null,p2=bL56[m]||null;
     const w=getWinnerName(p1,p2,'c','R6.1',m+1);
-    rc61.push({p1,p2,w,o1:`Gan. C-R6 p.${m+1}`,o2:`${ordinal(m+1)} perd. B-R5.1/R6`,br:'c',round:'R6.1',match:m+1});
+    const src61=m<4?'B-R5.1':'B-R6';
+    const idx61=m<4?m+1:m-3;
+    rc61.push({p1,p2,w,o1:`Gan. C-R6 p.${m+1}`,o2:`${ordinal(idx61)} perd. ${src61}`,br:'c',round:'R6.1',match:m+1});
   }
   rounds.push(rc61);
-  // R7: 4 bracket
+
+  // C-R7: 4 bracket
   const rc7=[];
   for(let m=0;m<4;m++){
     const p1=rc61[m*2]?.w||null,p2=rc61[m*2+1]?.w||null;
@@ -768,14 +793,18 @@ function buildC(aRounds,bRounds){
     rc7.push({p1,p2,w,o1:`Gan. C-R6.1 p.${m*2+1}`,o2:`Gan. C-R6.1 p.${m*2+2}`,br:'c',round:'R7',match:m+1});
   }
   rounds.push(rc7);
-  // R7.1: 4 matches 1-to-1 — LAST ROUND, no final
-  const bl61=bLosers_(bRounds,8),bl7=bLosers_(bRounds,9);
-  const bL67=[...bl61,...bl7];
+
+  // C-R7.1: 4 matches 1-to-1 — gan C-R7 vs [perd B-R6.1 (1-2) + perd B-R7 (3-4)]
+  const bl61=bLosers_(bRounds,8);  // 2 slots
+  const bl7=bLosers_(bRounds,9);   // 2 slots
+  const bL67=[...bl61,...bl7];      // B-R6.1 first, then B-R7
   const rc71=[];
   for(let m=0;m<4;m++){
     const p1=rc7[m]?.w||null,p2=bL67[m]||null;
     const w=getWinnerName(p1,p2,'c','R7.1',m+1);
-    rc71.push({p1,p2,w,o1:`Gan. C-R7 p.${m+1}`,o2:`${ordinal(m+1)} perd. B-R6.1/R7`,br:'c',round:'R7.1',match:m+1});
+    const src71=m<2?'B-R6.1':'B-R7';
+    const idx71=m<2?m+1:m-1;
+    rc71.push({p1,p2,w,o1:`Gan. C-R7 p.${m+1}`,o2:`${ordinal(idx71)} perd. ${src71}`,br:'c',round:'R7.1',match:m+1});
   }
   rounds.push(rc71);
   return rounds;
